@@ -43,7 +43,7 @@ if ($MyOS -eq 3 ){
   
 } else {
   
-  $Customfield = "User: $($OutputArray.Username) | Driveletter: $($OutputArray.DriveLetter) | Path: $($OutputArray.Remotepath)" | Format-List | Out-String
+  $Customfield = "User: $($OutputArray.Username) - Driveletter: $($OutputArray.DriveLetter) - Path: $($OutputArray.Remotepath)" | Format-List | Out-String
   
   
 }
