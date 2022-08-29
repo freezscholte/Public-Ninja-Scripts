@@ -31,7 +31,7 @@ $Output = foreach ($tree in $forest){
 
 $stopwatch = "Total scan time in $((New-Timespan -Start $StartTime -End $(Get-Date)).TotalSeconds) seconds"
 
-$CustomField = $Output + $stopwatch | format-table | Out-String
+$CustomField = $Output.Treesize + $stopwatch | format-table | Out-String
 
 $CustomField
 
