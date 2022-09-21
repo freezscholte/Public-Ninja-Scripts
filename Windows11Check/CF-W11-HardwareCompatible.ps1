@@ -472,3 +472,5 @@ $Customfield = [PSCustomObject]@{
 $Customfield = $Customfield | Format-List | Out-String
 
 $Customfield
+
+Ninja-Property-Set windows11Ready $Customfield
