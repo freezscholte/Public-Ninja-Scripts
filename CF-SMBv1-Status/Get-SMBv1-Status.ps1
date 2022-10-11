@@ -1,4 +1,5 @@
 $SMB = Get-WindowsOptionalFeature -Online -FeatureName SMB1Protocol
+$WinEvent = Get-WinEvent -LogName Microsoft-Windows-SMBServer/Audit -MaxEvents 10
 
 If ($SMB.State -eq "Enabled"){
     $Status = "Warning-1001: SMB is $($SMB.State)"
@@ -6,9 +7,15 @@ If ($SMB.State -eq "Enabled"){
     $Status = "Info-1000: SMB is $($SMB.State)"
 }
 
+$message = foreach ($Event in $WinEvent.Message){
+  $output = $Event -split "`n" | Select-String -pattern "^Client\sAddress:\s(.*)"
+  $output
+}
+
 $Customfield = [PSCustomObject]@{
     "Status" = $Status
-    "Remediation" = "We have a link to our wiki with more information"
+    "SMBv1 Clients" = $message
+    "Remediation" = "https://inventory.freez.it/wiki/view/232?search=smbv1"
 }
 
 $Customfield = $Customfield | Format-List | Out-String
