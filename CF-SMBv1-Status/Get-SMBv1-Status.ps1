@@ -15,7 +15,7 @@ $message = foreach ($Event in $WinEvent.Message){
 $Customfield = [PSCustomObject]@{
     "Status" = $Status
     "SMBv1 Clients" = $message
-    "Remediation" = "https://inventory.freez.it/wiki/view/232?search=smbv1"
+    "Remediation" = "LinktoWiki"
 }
 
 $Customfield = $Customfield | Format-List | Out-String
