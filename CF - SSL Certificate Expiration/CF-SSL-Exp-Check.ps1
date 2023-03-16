@@ -7,7 +7,14 @@ if ($Version -lt "6.3") {
 }
 $CertsBound = get-webbinding | where-object { $_.Protocol -eq "https" }
 $Diag = foreach ($Cert in $CertsBound) {
-    $CertFile = Get-ChildItem -path "CERT:LocalMachine\$($Cert.CertificateStoreName)" | Where-Object -Property ThumbPrint -eq $cert.certificateHash
+
+    $bindingInformation = $Cert.bindingInformation.Split(':')
+    $hostHeader = $bindingInformation[2]
+    $port = $bindingInformation[1]
+    $thumbprint = $Cert.CertificateHash
+    $store = $Cert.CertificateStoreName
+    $CertFile = Get-ChildItem -Path "Cert:\LocalMachine\$store" | Where-Object { $_.Thumbprint -eq $thumbprint }
+
     $Diff = (New-TimeSpan -Start $Today -End $CertFile.NotAfter).Days
 
 
@@ -32,7 +39,7 @@ if ($null -eq $diag) {
 }
 else {
     $i = "Unhealthy - Please check if certificate needs to be renewed"
-    $Customfield = $Diag + $i | Format-List | Out-String
+    $Customfield = ($Diag | Format-List | Out-String) + "`n" + $i
     $Customfield
     Ninja-Property-Set sslCertificates  $Customfield
 
