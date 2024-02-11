@@ -1,7 +1,7 @@
 #Get OS Version Info
 #V2.0
 #JS
-$minimumBuild = "19044"
+$minimumBuild = "19045"
 $actualbuild = [System.Environment]::OSVersion.Version
 
 if ($actualbuild.Build -lt $minimumBuild){
