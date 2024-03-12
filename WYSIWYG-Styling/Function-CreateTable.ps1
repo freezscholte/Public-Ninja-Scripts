@@ -59,10 +59,10 @@ function ConvertTo-HtmlTable {
 #Example code of how to use the function
 
 $RowColour = switch ($Object.vulnerabilities.cve.metrics.cvssMetricV31.cvssdata.baseSeverity) {
-    "HIGH" { "danger" } # Assuming you meant to map "HIGH" to "danger" as per your initial description
+    "HIGH" { "danger" }
     "MEDIUM" { "warning" }
     "LOW" { "other" }
-    default { $null } # Fallback color in case it doesn't match any case
+    default { $null } # Fallback to $Null in case it doesn't match any case or colour
 }
 
 $CVEResult = [PSCustomObject]@{
