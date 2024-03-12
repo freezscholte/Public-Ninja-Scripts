@@ -4,7 +4,7 @@ $ErrorActionPreference = 'silentlycontinue'
 try {
     $W10DeviceOnly = (Ninja-Property-Docs-Get-Single "Configuraties" "windows10OnlyDevices").split(",").ToUpper()
     $W11ApproveDeny = Ninja-Property-Docs-Get-Single "Configuraties" "windows11ApproveDeny"
-    $W11ReadyStatus = (Ninja-Property-Get windows11Ready) -eq "Status : Warning-1001: Not Compantible with Windows 11"
+    $W11ReadyStatus = (Ninja-Property-Get windows11Ready) -eq "Status : Warning-1001: Not Compatible with Windows 11"
 }
 catch {
     Write-Output 'An error occurred while getting the data from the Documentation fields.'
