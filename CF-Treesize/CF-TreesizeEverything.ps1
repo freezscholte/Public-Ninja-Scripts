@@ -1,6 +1,6 @@
 param(
     [string[]]$FilterExclude = @("C:\Windows"), # Default exclude path
-    [string]$FilterSize = ">100mb", # Default size threshold is 100MB and greater
+    [string]$FilterSize = ">100mb", # Default size threshold is 100MB and greater, supported operators are >, <, >=, <=, =
     [int]$listResults = 40, # Default number of results to display
     [ValidateSet("FullName", "CreationTime", "LastAccessTime", "LastWriteTime", "SizeInMB")]
     [string[]]$PropertyToSort = @("SizeInGB"), # Default properties to display
