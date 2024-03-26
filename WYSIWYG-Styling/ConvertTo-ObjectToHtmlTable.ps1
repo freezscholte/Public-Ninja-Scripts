@@ -8,20 +8,22 @@ An array of objects to convert to an HTML table. You can set the "RowColour" pro
 .EXAMPLE
 Example usage of the code:
 
-    $htmlTable = ConvertTo-HtmlTable -Objects $ArrayObject
-
-    $output = "@'
-    $($htmlTable)
-    '@"
+    $htmlTable = ConvertTo-ObjectToHtmlTable -Objects $ArrayObject
 
     Ninja-Property-Set cveTable $output
+
+    I have seen some rare cases to wrap the $output like this:
+
+      $output = "@'
+    $($htmlTable)
+    '@"
 
 .NOTES
 Feel free to use and modify this function as you see fit. If you have any questions or suggestions, please feel free to reach out to me.
 #>
 
 
-function ConvertTo-HtmlTable {
+function ConvertTo-ObjectToHtmlTable {
     param (
         [Parameter(Mandatory=$true)]
         [System.Collections.ArrayList]$Objects
@@ -56,33 +58,3 @@ function ConvertTo-HtmlTable {
     return $sb.ToString()
 }
 
-#Example code of how to use the function
-
-$RowColour = switch ($Object.vulnerabilities.cve.metrics.cvssMetricV31.cvssdata.baseSeverity) {
-    "HIGH" { "danger" }
-    "MEDIUM" { "warning" }
-    "LOW" { "other" }
-    default { $null } # Fallback to $Null in case it doesn't match any case or colour
-}
-
-$CVEResult = [PSCustomObject]@{
-    'CVE'                 = $cveId
-    'ExploitabilityScore' = $Object.vulnerabilities.cve.metrics.cvssMetricV31.exploitabilityScore
-    'ImpactScore'         = $Object.vulnerabilities.cve.metrics.cvssMetricV31.impactScore
-    'AttackVector'        = $Object.vulnerabilities.cve.metrics.cvssMetricV31.cvssdata.attackVector
-    'AttackComplexity'    = $Object.vulnerabilities.cve.metrics.cvssMetricV31.cvssdata.attackComplexity
-    'PrivilegesRequired'  = $Object.vulnerabilities.cve.metrics.cvssMetricV31.cvssdata.privilegesRequired
-    'IntegrityImpact'     = $Object.vulnerabilities.cve.metrics.cvssMetricV31.cvssdata.integrityImpact
-    'UserInteraction'     = $Object.vulnerabilities.cve.metrics.cvssMetricV31.cvssdata.userInteraction
-    'BaseScore'           = $Object.vulnerabilities.cve.metrics.cvssMetricV31.cvssdata.baseScore
-    'BaseSeverity'        = $Object.vulnerabilities.cve.metrics.cvssMetricV31.cvssdata.baseSeverity
-    'RowColour'           = $RowColour
-}
-
-$htmlTable = ConvertTo-HtmlTable -Objects $ArrayObject
-
-$output = "@'
-$($htmlTable)
-'@"
-
-Ninja-Property-Set cveTable $output

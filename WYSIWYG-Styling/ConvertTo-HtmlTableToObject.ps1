@@ -1,4 +1,22 @@
-function ConvertFrom-HtmlTable {
+<#
+.SYNOPSIS
+This function converts an HTML table to an array of objects, that is compatible with the WYSIWYG Styling in Ninja Customfields.
+
+.PARAMETER Html
+Convert an HTML table as string to an array of objects.
+
+.EXAMPLE
+Example usage of the code:
+
+    $i = (Ninja-Property-Get devhtml | ConvertFrom-Json).html
+
+    $Object = ConvertTo-HtmlTableToObject -Html $i
+
+.NOTES
+Feel free to use and modify this function as you see fit. If you have any questions or suggestions, please feel free to reach out to me.
+#>
+
+function ConvertTo-HtmlTableToObject {
     param (
         [Parameter(Mandatory=$true)]
         [string]$Html
@@ -42,9 +60,3 @@ function ConvertFrom-HtmlTable {
 
     return $objects
 }
-
-#Example code of how to use the function
-
-$i = (Ninja-Property-Get devhtml | ConvertFrom-Json).html
-
-$Object = ConvertFrom-HtmlTable -Html $i
