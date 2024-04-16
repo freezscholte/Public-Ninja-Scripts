@@ -26,7 +26,7 @@ Feel free to use and modify this function as you see fit. If you have any questi
 function ConvertTo-ObjectToHtmlTable {
     param (
         [Parameter(Mandatory=$true)]
-        [System.Collections.ArrayList]$Objects
+        [System.Collections.Generic.List[Object]]$Objects
     )
 
     $sb = New-Object System.Text.StringBuilder
