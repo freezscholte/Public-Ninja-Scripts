@@ -22,7 +22,7 @@ function ConvertTo-HtmlTableToObject {
         [string]$Html
     )
 
-    $objects = New-Object System.Collections.ArrayList
+    $objects = [System.Collections.Generic.List[Object]]::new()
 
     # Extract headers without HTML tags
     $headers = ([regex]::Matches($Html, '<th>\s*(.*?)\s*</th>')).Captures | ForEach-Object { $_.Value -replace '<[^>]+>', '' }
