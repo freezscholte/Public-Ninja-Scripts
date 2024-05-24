@@ -24,7 +24,7 @@ Feel free to use and modify this function as you see fit. If you have any questi
 
 function ConvertTo-ObjectToHtmlTable {
     param (
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [System.Collections.Generic.List[Object]]$Objects
     )
     $sb = New-Object System.Text.StringBuilder
@@ -32,8 +32,8 @@ function ConvertTo-ObjectToHtmlTable {
     [void]$sb.Append('<table><thead><tr>')
     # Add column headers based on the properties of the first object, excluding "RowColour"
     $Objects[0].PSObject.Properties.Name |
-        Where-Object { $_ -ne 'RowColour' } |
-        ForEach-Object { [void]$sb.Append("<th>$_</th>") }
+    Where-Object { $_ -ne 'RowColour' } |
+    ForEach-Object { [void]$sb.Append("<th>$_</th>") }
 
     [void]$sb.Append('</tr></thead><tbody>')
     foreach ($obj in $Objects) {
@@ -50,6 +50,7 @@ function ConvertTo-ObjectToHtmlTable {
     [void]$sb.Append('</tbody></table>')
     $OutputLength = $sb.ToString() | Measure-Object -Character -IgnoreWhiteSpace | Select-Object -ExpandProperty Characters
     if ($OutputLength -gt 200000) {
-      Write-Warning ('Output appears to be over the NinjaOne WYSIWYG field limit of 200,000 characters. Actual length was: {0}' -f $OutputLength)
-    return $sb.ToString()
+        Write-Warning ('Output appears to be over the NinjaOne WYSIWYG field limit of 200,000 characters. Actual length was: {0}' -f $OutputLength)
+        return $sb.ToString()
+    }
 }
