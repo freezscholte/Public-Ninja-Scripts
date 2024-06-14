@@ -1,40 +1,41 @@
-# Import the GetCompressedFileSize function from kernel32.dll
-Add-Type @"
-using System;
-using System.Runtime.InteropServices;
-
-public class Kernel32 {
-    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Auto)]
-    public static extern uint GetCompressedFileSize(string lpFileName, out uint lpFileSizeHigh);
-}
-"@
-
 #Check if a file is pinned or unpinned
 function Get-FilePinnedStatus {
     param (
         [string]$filePath
     )
 
-    # Correct usage of 'attrib' command
-    $attribOutput = & cmd /c "attrib" "$filePath"
-    
-    # Check for 'P' (Pinned) or 'U' (Unpinned) attributes
-    if ($attribOutput -match "\sP\s") {
-        return $true  # File is pinned
-    }
-    elseif ($attribOutput -match "\sU\s") {
+    $fileInfo = [System.IO.FileInfo]::new($filePath)
+    $attributes = $fileInfo.Attributes
+
+    if ($attributes.HasFlag([System.IO.FileAttributes]::SparseFile)) {
         return $false # File is unpinned
     }
     else {
-        Write-Warning "Unable to determine the status of $filePath"
-        return $null
+        return $true  # File is pinned
     }
 }
+
+
 # Function to get the actual size on disk
 function Get-ActualSizeOnDisk {
     param (
         [string]$filePath
     )
+
+    # Define the PInvoke signature for GetCompressedFileSize if it doesn't already exist
+    if (-not ([System.Management.Automation.PSTypeName]'Kernel32').Type) {
+        $signature = @"
+        using System;
+        using System.Runtime.InteropServices;
+
+        public class Kernel32 {
+            [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+            public static extern uint GetCompressedFileSize(string lpFileName, out uint lpFileSizeHigh);
+        }
+"@
+
+        Add-Type -TypeDefinition $signature -Language CSharp -PassThru
+    }
 
     $highSize = 0
     $lowSize = [Kernel32]::GetCompressedFileSize($filePath, [ref]$highSize)
@@ -82,16 +83,54 @@ function Cleanup-OldLogs {
 }
 
 # Function to unpin a file (set to cloud)
+# Define the function to set file attributes using PInvoke
 function UnpinOneDriveFile {
     param (
         [string]$FilePath
     )
-    # Using attrib command to set file to cloud
-    attrib +U -P $FilePath
-    if ($EnableLogging) {
-        Log-UnpinnedFile -FilePath $FilePath
+
+    # Resolve the full path of the file
+    $resolvedPath = (Resolve-Path -Path $FilePath).ProviderPath
+
+    try {
+        # Define the PInvoke signature for SetFileAttributes if it doesn't already exist
+        if (-not ([System.Management.Automation.PSTypeName]'WinAPI.Kernel32').Type) {
+            $signature = @"
+            [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+            public static extern bool SetFileAttributes(string lpFileName, int dwFileAttributes);
+"@
+
+            Add-Type -MemberDefinition $signature -Name "Kernel32" -Namespace "WinAPI"
+        }
+
+        # Ensure the file exists
+        if (-not (Test-Path -Path $resolvedPath)) {
+            Write-Error "File does not exist: $resolvedPath"
+            return
+        }
+
+        # Set the file attribute to 5248544 (combination of flags)
+        $result = [WinAPI.Kernel32]::SetFileAttributes($resolvedPath, 5248544)
+
+        if (-not $result) {
+            $errorId = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error()
+            throw "Failed to set file attributes. Win32 Error Code: $errorId"
+        }
+
+        if ($EnableLogging) {
+            Log-UnpinnedFile -FilePath $resolvedPath
+        }
+    }
+    catch {
+        Write-Error "Failed to unpin file: $_"
     }
 }
+
+# Test the function
+#UnpinOneDriveFile -FilePath .\DummyFile_100MB.dat
+#Measure-Command {UnpinOneDriveFile -FilePath .\DummyFile_100MB.dat}
+#525344	Always Available (Locally available on Disk)
+#5248544	Online Available (Only on OneDrive)
 
 function SetOneDriveFilesToCloud {
     param (
@@ -155,7 +194,9 @@ function SetOneDriveFilesToCloud {
         # Main processing loop to unpin files until the size limit is met
         if ($totalSize -gt $MaxLocalSizeBytes) {
             $files = $fileDetails | Sort-Object LastAccessTime
+
             foreach ($fileDetail in $files) {
+
                 if ($totalSize -le $MaxLocalSizeBytes) {
                     Write-Output "OneDrive Cleaned Up"
                     break
@@ -170,17 +211,14 @@ function SetOneDriveFilesToCloud {
 
                 # Check file age
                 $fileAge = (Get-Date) - $fileDetail.LastAccessTime
+
                 if ($fileAge.TotalDays -ge $MaxFileAgeDays -and -not $excludeFile) {
                     Write-Output "Unpinning file: $filePath"
                     UnpinOneDriveFile -FilePath $filePath
-                
-                    # Recheck the actual status of the file pinned or unpinned
-                    $actualSize = Get-ActualSizeOnDisk -filePath $filePath
-                    if ((Get-FilePinnedStatus -filePath $filePath) -eq $false) {
-                        [void]$fileDetails.Remove($fileDetail)
-                        $totalSize = ($fileDetails | Measure-Object -Property Size -Sum).Sum
-                        Write-Output "Updated local size: $totalSize bytes"
-                    }
+
+                    [void]$fileDetails.Remove($fileDetail)
+                    $totalSize = ($fileDetails | Measure-Object -Property Size -Sum).Sum
+                    Write-Output ("Initial local size: {0} GB" -f ([math]::Round($totalSize / 1GB, 2)))
                 }
             }
         }
@@ -194,9 +232,10 @@ function SetOneDriveFilesToCloud {
     }
 }
 
-#Example of how to run the script or just set the params statically
+# Example of how to run the script or just set the params statically
+
 $parameters = @{
-    MaxLocalSizeMB          = 3000
+    MaxLocalSizeMB          = 4500
     MaxFileAgeDays          = 0
     EnableLogging           = $true
     ExclusionListExtensions = @(".txt", ".docx")
@@ -204,5 +243,3 @@ $parameters = @{
 }
 
 SetOneDriveFilesToCloud @parameters
-
-
