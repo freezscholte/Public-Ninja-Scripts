@@ -126,11 +126,7 @@ function UnpinOneDriveFile {
     }
 }
 
-# Test the function
-#UnpinOneDriveFile -FilePath .\DummyFile_100MB.dat
-#Measure-Command {UnpinOneDriveFile -FilePath .\DummyFile_100MB.dat}
-#525344	Always Available (Locally available on Disk)
-#5248544	Online Available (Only on OneDrive)
+# Function to calculate total size of OneDrive files on local disk
 
 function SetOneDriveFilesToCloud {
     param (
