@@ -51,6 +51,6 @@ function ConvertTo-ObjectToHtmlTable {
     $OutputLength = $sb.ToString() | Measure-Object -Character -IgnoreWhiteSpace | Select-Object -ExpandProperty Characters
     if ($OutputLength -gt 200000) {
         Write-Warning ('Output appears to be over the NinjaOne WYSIWYG field limit of 200,000 characters. Actual length was: {0}' -f $OutputLength)
-        return $sb.ToString()
     }
+    return $sb.ToString()
 }
