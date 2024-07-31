@@ -192,8 +192,7 @@ function ConvertTo-ObjectToHtmlTable {
 }
 
 # Example usage
-$results = Get-FolderSizes -driveLetter "C" -Top 10 -maxDepth 10
-$results
+$results = Get-FolderSizes -driveLetter "C"
 
 
 # Convert the results to an HTML table
