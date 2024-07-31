@@ -53,6 +53,7 @@ namespace MftReader
             {
                 long folderSize = 0;
 
+                // Calculate size of files in the current directory
                 Parallel.ForEach(dirInfo.GetFiles(), file =>
                 {
                     try
@@ -65,11 +66,14 @@ namespace MftReader
                     }
                 });
 
+                // Recursively calculate size of subdirectories
                 Parallel.ForEach(dirInfo.GetDirectories(), subDir =>
                 {
                     try
                     {
                         CalculateFolderSize(subDir, currentDepth + 1, folderSizes);
+                        // Add the size of the subdirectory to the current folder size
+                        folderSize += folderSizes[subDir.FullName];
                     }
                     catch (UnauthorizedAccessException ex)
                     {
@@ -144,8 +148,8 @@ function Get-FolderSizes {
 
     $sortedFolderSizes = $folderSizes.GetEnumerator() | Sort-Object -Property Value -Descending | Select-Object -First $Top | ForEach-Object {
         [PSCustomObject]@{
-            Folder = $_.Key
-            Size     = Convert-BytesToSize -Bytes $_.Value
+            Folder    = $_.Key
+            Size      = Convert-BytesToSize -Bytes $_.Value
             RowColour = switch ($_.Value) {
                 { $_ -gt 1GB } { "danger"; break }
                 { $_ -gt 500MB } { "warning"; break }
