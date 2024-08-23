@@ -67,7 +67,7 @@ catch {
 
 try {
     #Scan the system and get the results
-
+    Import-Module PSEverything -Force
     $ScanResults = Search-Everything -Global -PathExclude $FilterExclude -AsArray -Filter "size:$($FilterSize)" | 
     ForEach-Object { Get-Item $_ -ErrorAction SilentlyContinue } | 
     Select-Object FullName, CreationTime, LastAccessTime, LastWriteTime, @{Name = "SizeInGB"; Expression = { [math]::Round($_.Length / 1GB, 1) } } |
