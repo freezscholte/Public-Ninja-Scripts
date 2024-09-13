@@ -10,158 +10,255 @@
 .NOTES
     File Name      : CF-UltraTreesizeNinja.ps1
     Author         : Jan Scholte
-    Version        : 0.5 Beta
+    Version        : 0.9 Beta
 #>
 
 Add-Type -TypeDefinition @"
 using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
 using System.IO;
-using System.Security.Cryptography;
+using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
+using System.Runtime.InteropServices;
+using System.ComponentModel;
 
-namespace MftReader
+namespace FolderSizeCalculatorNamespace
 {
+    public class FileSystemItem
+    {
+        public string Path { get; set; }
+        public long SizeOnDisk { get; set; }
+        public DateTime CreationTime { get; set; }
+        public DateTime LastWriteTime { get; set; }
+        public bool IsDirectory { get; set; }
+    }
+
     public class FolderSizeCalculator
     {
         private string driveLetter;
         private int maxDepth;
+        private bool verboseOutput;
+        public ConcurrentBag<FileSystemItem> Items { get; private set; }
 
-        public FolderSizeCalculator(string driveLetter, int maxDepth)
+        public FolderSizeCalculator(string driveLetter, int maxDepth, bool verboseOutput)
         {
             this.driveLetter = driveLetter;
             this.maxDepth = maxDepth;
+            this.verboseOutput = verboseOutput;
+            this.Items = new ConcurrentBag<FileSystemItem>();
         }
 
-        public ConcurrentDictionary<string, long> CalculateFolderSizes()
+        public void CalculateFolderSizes()
         {
-            ConcurrentDictionary<string, long> folderSizes = new ConcurrentDictionary<string, long>();
             DirectoryInfo rootDir = new DirectoryInfo(this.driveLetter + ":\\");
-            CalculateFolderSize(rootDir, 0, folderSizes);
-            return folderSizes;
+            CalculateFolderSize(rootDir, 0);
         }
 
-        private void CalculateFolderSize(DirectoryInfo dirInfo, int currentDepth, ConcurrentDictionary<string, long> folderSizes)
+        private long CalculateFolderSize(DirectoryInfo dirInfo, int currentDepth)
         {
             if (currentDepth > this.maxDepth)
             {
-                return;
+                return 0;
             }
+
+            long folderSizeOnDisk = 0;
+
+            var parallelOptions = new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount };
 
             try
             {
-                long folderSize = 0;
+                // Process files in the current directory
+                var files = Enumerable.Empty<FileInfo>();
+                try
+                {
+                    files = dirInfo.EnumerateFiles();
+                }
+                catch (Exception ex)
+                {
+                    if (this.verboseOutput)
+                    {
+                        Console.WriteLine("Error accessing files in directory {0}: {1}", dirInfo.FullName, ex.Message);
+                    }
+                }
 
-                // Calculate size of files in the current directory
-                Parallel.ForEach(dirInfo.GetFiles(), file =>
+                Parallel.ForEach(files, parallelOptions, file =>
                 {
                     try
                     {
-                        folderSize += file.Length;
+                        long fileSizeOnDisk = GetSizeOnDisk(file.FullName);
+                        var item = new FileSystemItem
+                        {
+                            Path = file.FullName,
+                            SizeOnDisk = fileSizeOnDisk,
+                            CreationTime = file.CreationTime,
+                            LastWriteTime = file.LastWriteTime,
+                            IsDirectory = false
+                        };
+                        Items.Add(item);
+
+                        Interlocked.Add(ref folderSizeOnDisk, fileSizeOnDisk);
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine("Error accessing file {0}: {1}", file.FullName, ex.Message);
+                        if (this.verboseOutput)
+                        {
+                            Console.WriteLine("Error processing file {0}: {1}", file.FullName, ex.Message);
+                        }
                     }
                 });
 
-                // Recursively calculate size of subdirectories
-                Parallel.ForEach(dirInfo.GetDirectories(), subDir =>
+                // Process subdirectories
+                var subDirs = Enumerable.Empty<DirectoryInfo>();
+                try
+                {
+                    subDirs = dirInfo.EnumerateDirectories();
+                }
+                catch (Exception ex)
+                {
+                    if (this.verboseOutput)
+                    {
+                        Console.WriteLine("Error accessing subdirectories in directory {0}: {1}", dirInfo.FullName, ex.Message);
+                    }
+                }
+
+                Parallel.ForEach(subDirs, parallelOptions, subDir =>
                 {
                     try
                     {
-                        CalculateFolderSize(subDir, currentDepth + 1, folderSizes);
-                        // Add the size of the subdirectory to the current folder size
-                        folderSize += folderSizes[subDir.FullName];
-                    }
-                    catch (UnauthorizedAccessException ex)
-                    {
-                        Console.WriteLine("Access denied to directory {0}: {1}", subDir.FullName, ex.Message);
+                        long subDirSizeOnDisk = CalculateFolderSize(subDir, currentDepth + 1);
+                        Interlocked.Add(ref folderSizeOnDisk, subDirSizeOnDisk);
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine("Unexpected error with directory {0}: {1}", subDir.FullName, ex.Message);
+                        if (this.verboseOutput)
+                        {
+                            Console.WriteLine("Error processing directory {0}: {1}", subDir.FullName, ex.Message);
+                        }
                     }
                 });
 
-                folderSizes[dirInfo.FullName] = folderSize;
-            }
-            catch (UnauthorizedAccessException ex)
-            {
-                Console.WriteLine("Access denied to directory {0}: {1}", dirInfo.FullName, ex.Message);
+                // Create FileSystemItem for the current directory
+                var dirItem = new FileSystemItem
+                {
+                    Path = dirInfo.FullName,
+                    SizeOnDisk = folderSizeOnDisk,
+                    CreationTime = dirInfo.CreationTime,
+                    LastWriteTime = dirInfo.LastWriteTime,
+                    IsDirectory = true
+                };
+                Items.Add(dirItem);
             }
             catch (Exception ex)
             {
-                Console.WriteLine("Unexpected error with directory {0}: {1}", dirInfo.FullName, ex.Message);
+                if (this.verboseOutput)
+                {
+                    Console.WriteLine("Error accessing directory {0}: {1}", dirInfo.FullName, ex.Message);
+                }
             }
-        }
-    }
 
-    public class Utils
-    {
-        public static void WriteToFile(string content, string path)
+            return folderSizeOnDisk;
+        }
+
+        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+        static extern uint GetCompressedFileSize(string lpFileName, out uint lpFileSizeHigh);
+
+        public static long GetSizeOnDisk(string filename)
         {
-            File.WriteAllText(path, content);
+            uint highOrder;
+            uint lowOrder = GetCompressedFileSize(filename, out highOrder);
+            if (lowOrder == 0xFFFFFFFF)
+            {
+                int error = Marshal.GetLastWin32Error();
+                if (error != 0)
+                {
+                    throw new Win32Exception(error);
+                }
+            }
+            return ((long)highOrder << 32) + lowOrder;
         }
     }
 }
 "@
+function Get-FolderSizes {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$DriveLetter,
+        [int]$MaxDepth = 5,
+        [int]$Top = 20,
+        [Switch]$FolderSize,
+        [Switch]$FileSize,
+        [Switch]$VerboseOutput
+    )
 
+    # Calculate folder sizes using the C# class
+    try {
+        $folderSizeCalculator = New-Object FolderSizeCalculatorNamespace.FolderSizeCalculator($DriveLetter, $MaxDepth, [bool]$VerboseOutput)
+        $folderSizeCalculator.CalculateFolderSizes()
+        $items = $folderSizeCalculator.Items
+    }
+    catch {
+        throw "Failed to calculate folder sizes: $_"
+    }
+
+    if ($items.Count -eq 0) {
+        throw "No items were found. Ensure that the drive letter is correct and accessible."
+    }
+
+    # Filter items based on parameters
+    $selectedItems = $items
+
+    if ($FolderSize -and -not $FileSize) {
+        $selectedItems = $items | Where-Object { $_.IsDirectory }
+    }
+    elseif ($FileSize -and -not $FolderSize) {
+        $selectedItems = $items | Where-Object { -not $_.IsDirectory }
+    }
+    elseif (-not $FolderSize -and -not $FileSize) {
+        # If neither is specified, default to folders only
+        $selectedItems = $items | Where-Object { $_.IsDirectory }
+    }
+    else {
+        # Both FolderSize and FileSize are specified; include all items
+        $selectedItems = $items
+    }
+
+    # Process and sort the selected items
+    $sortedItems = $selectedItems | Sort-Object -Property SizeOnDisk -Descending | Select-Object -First $Top | ForEach-Object {
+        [PSCustomObject]@{
+            Path          = $_.Path
+            Size          = Convert-BytesToSize -Bytes $_.SizeOnDisk
+            CreationTime  = $_.CreationTime
+            LastWriteTime = $_.LastWriteTime
+            IsDirectory   = $_.IsDirectory
+            RowColour     = switch ($_.SizeOnDisk) {
+                { $_ -gt 30GB } { "danger"; break }
+                { $_ -gt 5GB } { "warning"; break }
+                { $_ -gt 1GB } { "info"; break }
+                default { "default" }
+            }
+        }
+    }
+
+    # Return the sorted items
+    return $sortedItems
+}
 function Convert-BytesToSize {
     param (
         [Parameter(Mandatory = $true)]
         [long]$Bytes
     )
 
-    $Kilobytes = $Bytes / 1KB
-    $Megabytes = $Bytes / 1MB
-    $Gigabytes = $Bytes / 1GB
+    $sizes = "bytes", "KB", "MB", "GB", "TB", "PB", "EB"
+    $factor = 0
 
-    if ($Gigabytes -ge 1) {
-        return "{0:N2} GB" -f $Gigabytes
+    while ($Bytes -ge 1KB -and $factor -lt $sizes.Length - 1) {
+        $Bytes /= 1KB
+        $factor++
     }
-    elseif ($Megabytes -ge 1) {
-        return "{0:N2} MB" -f $Megabytes
-    }
-    elseif ($Kilobytes -ge 1) {
-        return "{0:N2} KB" -f $Kilobytes
-    }
-    else {
-        return "{0:N2} bytes" -f $Bytes
-    }
+
+    return "{0:N2} {1}" -f $Bytes, $sizes[$factor]
 }
-
-function Get-FolderSizes {
-    param (
-        [string]$driveLetter,
-        [int]$maxDepth = 5,
-        [int]$Top = 20
-    )
-
-    $folderSizeCalculator = New-Object MftReader.FolderSizeCalculator($driveLetter, $maxDepth)
-    $folderSizes = $folderSizeCalculator.CalculateFolderSizes()
-
-    if ($folderSizes.Count -eq 0) {
-        throw "No folder sizes were calculated. Ensure that the drive letter is correct and accessible."
-    }
-
-    $sortedFolderSizes = $folderSizes.GetEnumerator() | Sort-Object -Property Value -Descending | Select-Object -First $Top | ForEach-Object {
-        [PSCustomObject]@{
-            Folder    = $_.Key
-            Size      = Convert-BytesToSize -Bytes $_.Value
-            RowColour = switch ($_.Value) {
-                { $_ -gt 1GB } { "danger"; break }
-                { $_ -gt 500MB } { "warning"; break }
-                { $_ -gt 100MB } { "other"; break }
-                default { "unknown" }
-            }
-        }
-    }
-
-    return $sortedFolderSizes
-}
-
 function ConvertTo-ObjectToHtmlTable {
     param (
         [Parameter(Mandatory = $true)]
@@ -195,12 +292,9 @@ function ConvertTo-ObjectToHtmlTable {
     return $sb.ToString()
 }
 
-# Example usage
-$results = Get-FolderSizes -driveLetter "C"
+# Generate the Treesize report
+$results = Get-FolderSizes -DriveLetter "C" -MaxDepth 5 -Top 40 -FolderSize -FileSize -FolderSize
 
 
 # Convert the results to an HTML table
 ConvertTo-ObjectToHtmlTable -Objects $results | Ninja-Property-Set-Piped devhtml
-
-
-
