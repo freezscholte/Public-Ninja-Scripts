@@ -209,7 +209,7 @@ function Get-FolderSizes {
         $drivesToProcess = @("$DriveLetter`:") # Add colon to match the format (e.g., "C:")
     }
 
-    $allSortedItems = @()
+    $allSortedItems = [System.Collections.Generic.List[object]]::new()
 
     foreach ($drive in $drivesToProcess) {
         if ($VerboseOutput) {
@@ -268,7 +268,7 @@ function Get-FolderSizes {
         }
 
         # Add the sorted items for this drive to the list of all items
-        $allSortedItems += $sortedItems
+        $allSortedItems.Add($sortedItems)
     }
 
     # Return all sorted items
@@ -330,3 +330,4 @@ $results = Get-FolderSizes -AllDrives -MaxDepth 5 -Top 40 -FolderSize -FileSize
 # Convert the results to an HTML table
 ConvertTo-ObjectToHtmlTable -Objects $results | Ninja-Property-Set-Piped devhtml
 
+Measure-Command { $results = Get-FolderSizes -AllDrives -MaxDepth 5 -Top 40 -FolderSize -FileSize }
