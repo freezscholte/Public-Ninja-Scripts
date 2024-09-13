@@ -325,7 +325,7 @@ function ConvertTo-ObjectToHtmlTable {
 }
 
 # Generate the Treesize report
-$results = Get-FolderSizes -DriveLetter "C" -MaxDepth 5 -Top 40 -FolderSize -FileSize
+$results = Get-FolderSizes -AllDrives -MaxDepth 5 -Top 40 -FolderSize -FileSize
 
 # Convert the results to an HTML table
 ConvertTo-ObjectToHtmlTable -Objects $results | Ninja-Property-Set-Piped devhtml
