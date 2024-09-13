@@ -10,7 +10,7 @@
 .NOTES
     File Name      : CF-UltraTreesizeNinja.ps1
     Author         : Jan Scholte
-    Version        : 0.9 RC
+    Version        : 0.9.1 RC
 #>
 
 Add-Type -TypeDefinition @"
@@ -182,67 +182,99 @@ namespace FolderSizeCalculatorNamespace
 "@
 function Get-FolderSizes {
     param (
-        [Parameter(Mandatory = $true)]
+        [Parameter(Mandatory = $false)]
         [string]$DriveLetter,
         [int]$MaxDepth = 5,
         [int]$Top = 20,
         [Switch]$FolderSize,
         [Switch]$FileSize,
-        [Switch]$VerboseOutput
+        [Switch]$VerboseOutput,
+        [Switch]$AllDrives
     )
 
-    # Calculate folder sizes using the C# class
-    try {
-        $folderSizeCalculator = New-Object FolderSizeCalculatorNamespace.FolderSizeCalculator($DriveLetter, $MaxDepth, [bool]$VerboseOutput)
-        $folderSizeCalculator.CalculateFolderSizes()
-        $items = $folderSizeCalculator.Items
-    }
-    catch {
-        throw "Failed to calculate folder sizes: $_"
+    # Validate parameters
+    if (-not $AllDrives -and -not $DriveLetter) {
+        throw "You must specify either -DriveLetter or -AllDrives."
     }
 
-    if ($items.Count -eq 0) {
-        throw "No items were found. Ensure that the drive letter is correct and accessible."
+    # Get list of drives to process
+    $drivesToProcess = @()
+    if ($AllDrives) {
+        # Get all local drives (excluding removable and network drives)
+        $drives = Get-CimInstance Win32_LogicalDisk | Where-Object {
+            $_.DriveType -eq 3 # DriveType 3 = Local Disk
+        }
+        $drivesToProcess = $drives.DeviceID
+    } else {
+        $drivesToProcess = @("$DriveLetter`:") # Add colon to match the format (e.g., "C:")
     }
 
-    # Filter items based on parameters
-    $selectedItems = $items
+    $allSortedItems = @()
 
-    if ($FolderSize -and -not $FileSize) {
-        $selectedItems = $items | Where-Object { $_.IsDirectory }
-    }
-    elseif ($FileSize -and -not $FolderSize) {
-        $selectedItems = $items | Where-Object { -not $_.IsDirectory }
-    }
-    elseif (-not $FolderSize -and -not $FileSize) {
-        # If neither is specified, default to folders only
-        $selectedItems = $items | Where-Object { $_.IsDirectory }
-    }
-    else {
-        # Both FolderSize and FileSize are specified; include all items
+    foreach ($drive in $drivesToProcess) {
+        if ($VerboseOutput) {
+            Write-Output "Processing drive $drive"
+        }
+
+        # Extract the drive letter without colon
+        $driveLetterOnly = $drive.TrimEnd(':')
+
+        try {
+            $folderSizeCalculator = New-Object FolderSizeCalculatorNamespace.FolderSizeCalculator($driveLetterOnly, $MaxDepth, [bool]$VerboseOutput)
+            $folderSizeCalculator.CalculateFolderSizes()
+            $items = $folderSizeCalculator.Items
+        }
+        catch {
+            Write-Warning "Failed to calculate folder sizes for drive $drive : $_"
+            continue
+        }
+
+        if ($items.Count -eq 0) {
+            Write-Warning "No items were found on drive $drive. Ensure that the drive is accessible."
+            continue
+        }
+
+        # Filter items based on parameters
         $selectedItems = $items
-    }
 
-    # Process and sort the selected items
-    $sortedItems = $selectedItems | Sort-Object -Property SizeOnDisk -Descending | Select-Object -First $Top | ForEach-Object {
-        [PSCustomObject]@{
-            Path          = $_.Path
-            Size          = Convert-BytesToSize -Bytes $_.SizeOnDisk
-            CreationTime  = $_.CreationTime
-            LastWriteTime = $_.LastWriteTime
-            IsDirectory   = $_.IsDirectory
-            RowColour     = switch ($_.SizeOnDisk) {
-                { $_ -gt 30GB } { "danger"; break }
-                { $_ -gt 5GB } { "warning"; break }
-                { $_ -gt 1GB } { "info"; break }
-                default { "default" }
+        if ($FolderSize -and -not $FileSize) {
+            $selectedItems = $items | Where-Object { $_.IsDirectory }
+        } elseif ($FileSize -and -not $FolderSize) {
+            $selectedItems = $items | Where-Object { -not $_.IsDirectory }
+        } elseif (-not $FolderSize -and -not $FileSize) {
+            # If neither is specified, default to folders only
+            $selectedItems = $items | Where-Object { $_.IsDirectory }
+        } else {
+            # Both FolderSize and FileSize are specified; include all items
+            $selectedItems = $items
+        }
+
+        # Process and sort the selected items
+        $sortedItems = $selectedItems | Sort-Object -Property SizeOnDisk -Descending | Select-Object -First $Top | ForEach-Object {
+            [PSCustomObject]@{
+                Drive         = $drive
+                Path          = $_.Path
+                Size          = Convert-BytesToSize -Bytes $_.SizeOnDisk
+                CreationTime  = $_.CreationTime
+                LastWriteTime = $_.LastWriteTime
+                IsDirectory   = $_.IsDirectory
+                RowColour     = switch ($_.SizeOnDisk) {
+                    { $_ -gt 30GB } { "danger"; break }
+                    { $_ -gt 5GB }  { "warning"; break }
+                    { $_ -gt 1GB }  { "info"; break }
+                    default         { "default" }
+                }
             }
         }
+
+        # Add the sorted items for this drive to the list of all items
+        $allSortedItems += $sortedItems
     }
 
-    # Return the sorted items
-    return $sortedItems
+    # Return all sorted items
+    return $allSortedItems
 }
+
 function Convert-BytesToSize {
     param (
         [Parameter(Mandatory = $true)]
@@ -295,6 +327,6 @@ function ConvertTo-ObjectToHtmlTable {
 # Generate the Treesize report
 $results = Get-FolderSizes -DriveLetter "C" -MaxDepth 5 -Top 40 -FolderSize -FileSize
 
-
 # Convert the results to an HTML table
 ConvertTo-ObjectToHtmlTable -Objects $results | Ninja-Property-Set-Piped devhtml
+
