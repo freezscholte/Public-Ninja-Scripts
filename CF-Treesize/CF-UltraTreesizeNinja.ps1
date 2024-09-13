@@ -10,7 +10,7 @@
 .NOTES
     File Name      : CF-UltraTreesizeNinja.ps1
     Author         : Jan Scholte
-    Version        : 0.9 Beta
+    Version        : 0.9 RC
 #>
 
 Add-Type -TypeDefinition @"
@@ -293,7 +293,7 @@ function ConvertTo-ObjectToHtmlTable {
 }
 
 # Generate the Treesize report
-$results = Get-FolderSizes -DriveLetter "C" -MaxDepth 5 -Top 40 -FolderSize -FileSize -FolderSize
+$results = Get-FolderSizes -DriveLetter "C" -MaxDepth 5 -Top 40 -FolderSize -FileSize
 
 
 # Convert the results to an HTML table
