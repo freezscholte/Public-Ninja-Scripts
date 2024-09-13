@@ -329,5 +329,3 @@ $results = Get-FolderSizes -AllDrives -MaxDepth 5 -Top 40 -FolderSize -FileSize
 
 # Convert the results to an HTML table
 ConvertTo-ObjectToHtmlTable -Objects $results | Ninja-Property-Set-Piped devhtml
-
-Measure-Command { $results = Get-FolderSizes -AllDrives -MaxDepth 5 -Top 40 -FolderSize -FileSize }
