@@ -268,7 +268,7 @@ function Get-FolderSizes {
         }
 
         # Add the sorted items for this drive to the list of all items
-        $allSortedItems.Add($sortedItems)
+        $allSortedItems.AddRange($sortedItems)
     }
 
     # Return all sorted items
