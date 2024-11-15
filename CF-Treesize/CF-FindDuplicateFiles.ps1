@@ -21,6 +21,8 @@ param(
     [string[]]$ExcludeExtensions = @('.vmgs', '.vhdx', '.vhd', '.vmrs', '.vmdk', '.dat', '.tmp', '.log', '.dll', '.evtx'),
 
     [Parameter()]
+    [string[]]$ExcludePaths = @(),
+    [Parameter()]
     [int]$MinimumFileSizeMB = 10,
 
     [Parameter()]
@@ -359,9 +361,9 @@ function Get-DuplicateFilesBySizeAndHash {
                     @{Name = 'Size'; Expression = { Convert-BytesToSize -Bytes $_.SizeOnDisk } },
                     @{Name = 'RowColour'; Expression = {
                             switch ($_.SizeOnDisk) {
-                                { $_ -gt 1GB } { "danger"; break }
-                                { $_ -gt 500MB } { "warning"; break }
-                                { $_ -gt 10MB } { "info"; break }
+                                { $_ -gt 1073741824 } { "danger"; break }  # 1GB in bytes
+                                { $_ -gt 524288000 } { "warning"; break } # 500MB in bytes
+                                { $_ -gt 10485760 } { "info"; break }    # 10MB in bytes
                                 default { "default" }
                             }
                         }
@@ -374,9 +376,9 @@ function Get-DuplicateFilesBySizeAndHash {
                     @{Name = 'Size'; Expression = { Convert-BytesToSize -Bytes $_.SizeOnDisk } },
                     @{Name = 'RowColour'; Expression = {
                             switch ($_.SizeOnDisk) {
-                                { $_ -gt 1GB } { "danger"; break }
-                                { $_ -gt 500MB } { "warning"; break }
-                                { $_ -gt 10MB } { "info"; break }
+                                { $_ -gt 1073741824 } { "danger"; break }  # 1GB in bytes
+                                { $_ -gt 524288000 } { "warning"; break } # 500MB in bytes
+                                { $_ -gt 10485760 } { "info"; break }    # 10MB in bytes
                                 default { "default" }
                             }
                         }
@@ -503,5 +505,4 @@ Write-Output "Found $($duplicates.Count) duplicate files."
 #Convert the duplicate files to an HTML table and set the property in NinjaOne
 ConvertTo-ObjectToHtmlTable -Objects $duplicates | Ninja-Property-Set-Piped $CustomFieldName
 
-
-
+$test = Get-DuplicateFilesBySizeAndHash -Items $allFiles -ExcludeExtensions $ExcludeExtensions -MinimumFileSizeMB $MinimumFileSizeMB -ExcludeWindowsOS -ExcludePaths $ExcludePaths
