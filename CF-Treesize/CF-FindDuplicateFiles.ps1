@@ -10,8 +10,22 @@
 .NOTES
     File Name      : CF-FindDuplicateFiles.ps1
     Author         : Jan Scholte
-    Version        : 0.2 Beta
+    Version        : 0.9 RC
 #>
+[CmdletBinding()]
+param(
+    [Parameter()]
+    [string]$CustomFieldName = "duplicateFiles",
+
+    [Parameter()]
+    [string[]]$ExcludeExtensions = @('.vmgs', '.vhdx', '.vhd', '.vmrs', '.vmdk', '.dat', '.tmp', '.log', '.dll', '.evtx'),
+
+    [Parameter()]
+    [int]$MinimumFileSizeMB = 10,
+
+    [Parameter()]
+    [int]$MaxDepth = 5
+)
 
 Add-Type -TypeDefinition @"
 using System;
@@ -39,13 +53,15 @@ namespace FolderSizeCalculatorNamespace
         private string driveLetter;
         private int maxDepth;
         private bool verboseOutput;
+        private int maxDegreeOfParallelism;
         public ConcurrentBag<FileSystemItem> Items { get; private set; }
 
-        public FolderSizeCalculator(string driveLetter, int maxDepth, bool verboseOutput)
+        public FolderSizeCalculator(string driveLetter, int maxDepth, bool verboseOutput, int? maxParallelism = null)
         {
             this.driveLetter = driveLetter;
             this.maxDepth = maxDepth;
             this.verboseOutput = verboseOutput;
+            this.maxDegreeOfParallelism = maxParallelism ?? (Environment.ProcessorCount * 4);
             this.Items = new ConcurrentBag<FileSystemItem>();
         }
 
@@ -64,7 +80,7 @@ namespace FolderSizeCalculatorNamespace
 
             long folderSizeOnDisk = 0;
 
-            var parallelOptions = new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount };
+            var parallelOptions = new ParallelOptions { MaxDegreeOfParallelism = this.maxDegreeOfParallelism };
 
             try
             {
@@ -278,17 +294,12 @@ function Get-DuplicateFilesBySizeAndHash {
         [string[]]$ExcludeExtensions
     )
 
-    # Initialize an ArrayList to hold results
-    $results = New-Object System.Collections.ArrayList
-
-    # Step 1: Build the list of paths to exclude
-    $excludedPaths = New-Object System.Collections.ArrayList
+    # Use generic List instead of ArrayList for better performance
+    $results = [System.Collections.Generic.List[object]]::new()
+    $excludedPaths = [System.Collections.Generic.List[string]]::new()
 
     if ($ExcludeWindowsOS) {
-        # Get list of fixed drives
         $fixedDrives = (Get-CimInstance Win32_LogicalDisk -Filter "DriveType = 3").DeviceID
-
-        # Build system directories
         $systemDirs = @(
             '\Windows',
             '\ProgramData',
@@ -298,10 +309,9 @@ function Get-DuplicateFilesBySizeAndHash {
             '\Documents and Settings'
         )
 
-        # Build paths for system directories on all fixed drives
         foreach ($drive in $fixedDrives) {
             foreach ($dir in $systemDirs) {
-                [void]$excludedPaths.Add("$drive$dir")
+                $excludedPaths.Add("$drive$dir")
             }
         }
     }
@@ -310,85 +320,69 @@ function Get-DuplicateFilesBySizeAndHash {
         $excludedPaths.AddRange($ExcludePaths)
     }
 
-    # Convert MinimumFileSizeMB to bytes
     $minimumFileSizeBytes = $MinimumFileSizeMB * 1MB
 
-    # Step 2: Filter items based on excluded paths
-    if ($excludedPaths.Count -gt 0) {
-        $filteredItems = $Items | Where-Object {
-            $itemPath = $_.Path
+    # Optimize filtering by combining conditions
+    $filteredItems = $Items.Where({
+            $item = $_
+            $include = $_.SizeOnDisk -gt 0 -and
+            $_.SizeOnDisk -ge $minimumFileSizeBytes -and
+            -not $_.IsDirectory -and
+                  (-not ($ExcludeExtensions -and ($ExcludeExtensions -contains [System.IO.Path]::GetExtension($_.Path))))
 
-            # Normalize the item path
-            $normalizedItemPath = [System.IO.Path]::GetFullPath($itemPath)
+            if (-not $include) { return $false }
 
-            # Check if the item's path does not start with any of the excluded paths
-            $exclude = $false
-            foreach ($path in $excludedPaths) {
-                # Normalize the excluded path
-                $normalizedExcludedPath = [System.IO.Path]::GetFullPath($path)
-
-                if ($normalizedItemPath -like "$normalizedExcludedPath*") {
-                    $exclude = $true
-                    break
+            if ($excludedPaths.Count -gt 0) {
+                $normalizedItemPath = [System.IO.Path]::GetFullPath($item.Path)
+                foreach ($path in $excludedPaths) {
+                    if ($normalizedItemPath.StartsWith([System.IO.Path]::GetFullPath($path), [StringComparison]::OrdinalIgnoreCase)) {
+                        return $false
+                    }
                 }
             }
-            return -not $exclude
-        }
-    }
-    else {
-        $filteredItems = $Items
-    }
+            return $true
+        })
 
-    # Step 3: Further filter items based on file size and extension
-    $filteredItems = $filteredItems | Where-Object {
-        $_.SizeOnDisk -gt 0 -and
-        $_.SizeOnDisk -ge $minimumFileSizeBytes -and
-        $_.IsDirectory -eq $false -and
-        (
-            -not ($ExcludeExtensions -and ($ExcludeExtensions -contains [System.IO.Path]::GetExtension($_.Path)))
-        )
-    }
-
-    # Step 4: Group files by SizeOnDisk where more than one file shares the same size
+    # Group files by size
     $duplicateSizeGroups = $filteredItems | Group-Object -Property SizeOnDisk | Where-Object { $_.Count -gt 1 }
 
-    # Step 5: For each group of files with the same size
+    # Process files in batches for better memory management
     foreach ($group in $duplicateSizeGroups) {
-        #$size = $group.Name
         $files = $group.Group
-
-        # Step 6: Calculate MD5 hash for each file in the group
+        
         foreach ($item in $files) {
             try {
-                
-                if ($item.SizeOnDisk -lt 25000000) {
-                    # Calculate the MD5 hash of the file
+                if ($item.SizeOnDisk -lt 25MB) {
                     $hash = Get-FileHash -Algorithm MD5 -Path $item.Path -ErrorAction Stop
-
-                    # Create a new object with the original properties plus the MD5 hash
-                    $itemWithHash = $item | Select-Object *, @{Name = 'MD5Hash'; Expression = { $hash.Hash } }
-
-                    # Add the new object to the results array
-                    [void]$results.Add($itemWithHash)
-                } else {
-                    # Generate preliminary hash
-                    $prelimHash = Get-FilePreliminaryHash -Path $item.Path -ErrorAction Stop
-
-                    # Create a new object with the original properties plus the preliminary hash
-                    $itemWithHash = $item | Select-Object *, @{Name = 'MD5Hash'; Expression = { $prelimHash } }
-
-                    # Add the new object to the results array
-                    [void]$results.Add($itemWithHash)
+                    $itemWithHash = $item | Select-Object *, 
+                    @{Name = 'MD5Hash'; Expression = { $hash.Hash } },
+                    @{Name = 'Size'; Expression = { Convert-BytesToSize -Bytes $_.SizeOnDisk } },
+                    @{Name = 'RowColour'; Expression = {
+                            switch ($_.SizeOnDisk) {
+                                { $_ -gt 1GB } { "danger"; break }
+                                { $_ -gt 500MB } { "warning"; break }
+                                { $_ -gt 10MB } { "info"; break }
+                                default { "default" }
+                            }
+                        }
+                    }
                 }
-                    
-                # Calculate the MD5 hash of the file
-                #$hash = Get-FileHash -Algorithm MD5 -Path $item.Path -ErrorAction Stop
-
-                # Create a new object with the original properties plus the MD5 hash
-                #$itemWithHash = $item | Select-Object *, @{Name = 'MD5Hash'; Expression = { $hash.Hash } }
-
-                # Add the new object to the results array
-                #[void]$results.Add($itemWithHash)
+                else {
+                    $prelimHash = Get-FilePreliminaryHash -Path $item.Path -ChunkSize 1MB -ErrorAction Stop
+                    $itemWithHash = $item | Select-Object *, 
+                    @{Name = 'MD5Hash'; Expression = { $prelimHash } },
+                    @{Name = 'Size'; Expression = { Convert-BytesToSize -Bytes $_.SizeOnDisk } },
+                    @{Name = 'RowColour'; Expression = {
+                            switch ($_.SizeOnDisk) {
+                                { $_ -gt 1GB } { "danger"; break }
+                                { $_ -gt 500MB } { "warning"; break }
+                                { $_ -gt 10MB } { "info"; break }
+                                default { "default" }
+                            }
+                        }
+                    }
+                }
+                $results.Add($itemWithHash)
             }
             catch {
                 Write-Warning "Could not compute hash for $($item.Path): $_"
@@ -396,24 +390,18 @@ function Get-DuplicateFilesBySizeAndHash {
         }
     }
 
-    # Return the list of items with MD5 hashes
-
-    $duplicates = $results `
-    | Group-Object -Property MD5Hash `
-    | Where-Object { $_.Count -gt 1 } `
-    | ForEach-Object { $_.Group }
-
-    # Output the duplicates
-    #$duplicates
-
-    return $duplicates
+    # Return duplicates with formatted size
+    return $results | 
+    Group-Object -Property MD5Hash | 
+    Where-Object { $_.Count -gt 1 } |
+    Sort-Object { ($_.Group | Measure-Object -Property SizeOnDisk -Sum).Sum } -Descending |
+    ForEach-Object { $_.Group }
 }
-
 function Get-FilePreliminaryHash {
     param (
         [Parameter(Mandatory = $true)]
         [string]$Path,
-        [int]$ChunkSize = 4096 # 4KB
+        [int]$ChunkSize = 1MB
     )
 
     if (-not (Test-Path -Path $Path -PathType Leaf)) {
@@ -434,7 +422,12 @@ function Get-FilePreliminaryHash {
         }
 
         $hashAlgorithm = [System.Security.Cryptography.MD5]::Create()
-        $prelimHash = [BitConverter]::ToString($hashAlgorithm.ComputeHash($buffer, 0, $bytesRead + ($stream.Length -gt $ChunkSize ? $ChunkSize : 0))).Replace("-", "").ToLowerInvariant()
+        
+        # Replace ternary operator with if-else
+        $additionalBytes = if ($stream.Length -gt $ChunkSize) { $ChunkSize } else { 0 }
+        $prelimHash = [BitConverter]::ToString(
+            $hashAlgorithm.ComputeHash($buffer, 0, $bytesRead + $additionalBytes)
+        ).Replace("-", "").ToLowerInvariant()
     }
     finally {
         $stream.Close()
@@ -442,13 +435,73 @@ function Get-FilePreliminaryHash {
     
     return $prelimHash
 }
+function Convert-BytesToSize {
+    param (
+        [Parameter(Mandatory = $true)]
+        [long]$Bytes
+    )
 
-$allFiles = GetFilesMFTTable -AllDrives -FileSize -MaxDepth 5
+    $sizes = "bytes", "KB", "MB", "GB", "TB", "PB", "EB"
+    $factor = 0
 
-# Measure the time it takes to find duplicate files
-Measure-Command { $duplicates = Get-DuplicateFilesBySizeAndHash -Items $allFiles -ExcludeExtensions '.vmgs', '.vhdx', '.vmdk', '.dat', '.tmp', '.log', '.dll', '.evtx' -ExcludeWindowsOS -MinimumFileSizeMB 10 }
+    while ($Bytes -ge 1KB -and $factor -lt $sizes.Length - 1) {
+        $Bytes /= 1KB
+        $factor++
+    }
+
+    return "{0:N2} {1}" -f $Bytes, $sizes[$factor]
+}
+function ConvertTo-ObjectToHtmlTable {
+    param (
+        [Parameter(Mandatory = $true)]
+        [System.Collections.Generic.List[Object]]$Objects
+    )
+    $sb = New-Object System.Text.StringBuilder
+    # Start the HTML table
+    [void]$sb.Append('<table><thead><tr>')
+    # Add column headers based on the properties of the first object, excluding "RowColour"
+    $Objects[0].PSObject.Properties.Name |
+    Where-Object { $_ -ne 'RowColour' } |
+    ForEach-Object { [void]$sb.Append("<th>$_</th>") }
+
+    [void]$sb.Append('</tr></thead><tbody>')
+    foreach ($obj in $Objects) {
+        # Use the RowColour property from the object to set the class for the row
+        $rowClass = if ($obj.RowColour) { $obj.RowColour } else { "" }
+
+        [void]$sb.Append("<tr class=`"$rowClass`">")
+        # Generate table cells, excluding "RowColour"
+        foreach ($propName in $obj.PSObject.Properties.Name | Where-Object { $_ -ne 'RowColour' }) {
+            [void]$sb.Append("<td>$($obj.$propName)</td>")
+        }
+        [void]$sb.Append('</tr>')
+    }
+    [void]$sb.Append('</tbody></table>')
+    $OutputLength = $sb.ToString() | Measure-Object -Character -IgnoreWhiteSpace | Select-Object -ExpandProperty Characters
+    if ($OutputLength -gt 200000) {
+        Write-Warning ('Output appears to be over the NinjaOne WYSIWYG field limit of 200,000 characters. Actual length was: {0}' -f $OutputLength)
+    }
+    return $sb.ToString()
+}
+
+#Grab all files from the MFT table
+$allFiles = GetFilesMFTTable -AllDrives -FileSize -MaxDepth $MaxDepth
+
+#Set the parameters for the Get-DuplicateFilesBySizeAndHash function
+$params = @{
+    Items             = $allFiles
+    ExcludeExtensions = $ExcludeExtensions 
+    MinimumFileSizeMB = $MinimumFileSizeMB
+    ExcludeWindowsOS  = [switch]::Present
+}
+
+# Get the duplicate files
+$duplicates = Get-DuplicateFilesBySizeAndHash @params
 
 Write-Output "Found $($duplicates.Count) duplicate files."
+
+#Convert the duplicate files to an HTML table and set the property in NinjaOne
+ConvertTo-ObjectToHtmlTable -Objects $duplicates | Ninja-Property-Set-Piped $CustomFieldName
 
 
 
