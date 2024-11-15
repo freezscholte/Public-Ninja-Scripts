@@ -1,3 +1,4 @@
+
 <#
 .SYNOPSIS
     Calculate the sizes of folders from the Master File Table using C# on a drive and output the results in an HTML table.
@@ -39,13 +40,15 @@ namespace FolderSizeCalculatorNamespace
         private string driveLetter;
         private int maxDepth;
         private bool verboseOutput;
+        private long sizeThreshold;
         public ConcurrentBag<FileSystemItem> Items { get; private set; }
 
-        public FolderSizeCalculator(string driveLetter, int maxDepth, bool verboseOutput)
+        public FolderSizeCalculator(string driveLetter, int maxDepth, bool verboseOutput, long sizeThreshold = 1024 * 1024)
         {
             this.driveLetter = driveLetter;
             this.maxDepth = maxDepth;
             this.verboseOutput = verboseOutput;
+            this.sizeThreshold = sizeThreshold;
             this.Items = new ConcurrentBag<FileSystemItem>();
         }
 
@@ -95,7 +98,10 @@ namespace FolderSizeCalculatorNamespace
                             LastWriteTime = file.LastWriteTime,
                             IsDirectory = false
                         };
-                        Items.Add(item);
+                        if (fileSizeOnDisk > sizeThreshold)
+                        {
+                            Items.Add(item);
+                        }
 
                         Interlocked.Add(ref folderSizeOnDisk, fileSizeOnDisk);
                     }
@@ -328,4 +334,4 @@ function ConvertTo-ObjectToHtmlTable {
 $results = Get-FolderSizes -AllDrives -MaxDepth 5 -Top 40 -FolderSize -FileSize
 
 # Convert the results to an HTML table
-ConvertTo-ObjectToHtmlTable -Objects $results | Ninja-Property-Set-Piped devhtml
+ConvertTo-ObjectToHtmlTable -Objects $results | Ninja-Property-Set-Piped customFieldName
