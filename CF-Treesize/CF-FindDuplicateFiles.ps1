@@ -504,5 +504,3 @@ Write-Output "Found $($duplicates.Count) duplicate files."
 
 #Convert the duplicate files to an HTML table and set the property in NinjaOne
 ConvertTo-ObjectToHtmlTable -Objects $duplicates | Ninja-Property-Set-Piped $CustomFieldName
-
-$test = Get-DuplicateFilesBySizeAndHash -Items $allFiles -ExcludeExtensions $ExcludeExtensions -MinimumFileSizeMB $MinimumFileSizeMB -ExcludeWindowsOS -ExcludePaths $ExcludePaths
