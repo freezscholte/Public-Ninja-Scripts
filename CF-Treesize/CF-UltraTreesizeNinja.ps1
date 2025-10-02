@@ -7,7 +7,8 @@
     This script calculates the sizes of folders from the Master File Table (MFT) using C# on a specified drive and outputs the results in an HTML table.
     The script uses a compiled C# class to read the MFT records and calculate the sizes of folders recursively.
     The results are displayed in an HTML table with the top folders by size, and the row color is based on the size of the folder.
-
+    This script writes the data to the Custom Field named treesize.
+        
 .NOTES
     File Name      : CF-UltraTreesizeNinja.ps1
     Author         : Jan Scholte
@@ -334,4 +335,4 @@ function ConvertTo-ObjectToHtmlTable {
 $results = Get-FolderSizes -AllDrives -MaxDepth 5 -Top 40 -FolderSize -FileSize
 
 # Convert the results to an HTML table
-ConvertTo-ObjectToHtmlTable -Objects $results | Ninja-Property-Set-Piped customFieldName
+ConvertTo-ObjectToHtmlTable -Objects $results | Ninja-Property-Set-Piped treesize
